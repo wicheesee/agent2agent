@@ -50,8 +50,7 @@ class MyAgentTaskManager(InMemoryTaskManager):
         }
       ]
       message = Message(role="agent", parts=parts)
-      is_last = text == text_messages[-1]
-      task_state = TaskState.COMPLETED if is_last else TaskState.WORKING
+      task_state = TaskState.WORKING
       task_status = TaskStatus(
         state=task_state,
         message=message
@@ -59,28 +58,70 @@ class MyAgentTaskManager(InMemoryTaskManager):
       task_update_event = TaskStatusUpdateEvent(
         id=request.params.id,
         status=task_status,
-        final=is_last,
+        final=False,
       )
       await self.enqueue_events_for_sse(
-        request.params.id,
-        task_update_event
+      request.params.id,
+      task_update_event
+        
       )
-
+    ask_message = Message(
+      role="agent",
+      parts=[
+        {
+          "type": "text",
+          "text": "Would you like more messages? (Y/N)"
+        }
+      ]
+    )
+    task_update_event = TaskStatusUpdateEvent(
+      id=request.params.id,
+      status=TaskStatus(
+        state=TaskState.INPUT_REQUIRED,
+        message=ask_message
+      ),
+      final=True,
+    )
+    await self.enqueue_events_for_sse(
+      request.params.id,
+      task_update_event
+    )
+    
   async def on_send_task_subscribe(
     self,
     request: SendTaskStreamingRequest
   ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+    task_id = request.params.id
+    is_new_task = task_id in self.tasks
     # Upsert a task stored by InMemoryTaskManager
     await self.upsert_task(request.params)
 
-    task_id = request.params.id
-    # Create a queue of work to be done for this task
+    received_text = request.params.message.parts[0].text
     sse_event_queue = await self.setup_sse_consumer(task_id=task_id)
+    if not is_new_task and received_text == "N":
+      task_update_event = TaskStatusUpdateEvent(
+        id=request.params.id,
+        status=TaskStatus(
+          state=TaskState.COMPLETED,
+          message=Message(
+            role="agent",
+            parts=[
+              {
+                "type": "text",
+                "text": "All done!"
+              }
+            ]
+          )
+        ),
+        final=True,
+      )
+      await self.enqueue_events_for_sse(
+        request.params.id,
+        task_update_event,
+      )
+    else:
+      asyncio.create_task(self._stream_3_messages(request))
 
-    # Start the asynchronous work for this task
-    asyncio.create_task(self._stream_3_messages(request))
-
-    # Tell the client to expect future streaming responses
     return self.dequeue_events_for_sse(
       request_id=request.id,
       task_id=task_id,
