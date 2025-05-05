@@ -32,18 +32,27 @@ def main(host, port):
     outputModes=["text"],
   )
   logging.info(skill)
+  time_skill = AgentSkill(
+    id="my-project-time-skill",
+    name="Current Time Tool",
+    description="Gets the current time for a specified timezone (defaults to Asia/Jakarta).",
+    tags=["time", "clock", "timezone"],
+    examples=["What time is it in London?", "Current time please", "Jam berapa sekarang?"],
+    inputModes=["text"],
+    outputModes=["text"],
+  )
   capabilities = AgentCapabilities(
-    streaming=False
+    streaming=True
   )
   agent_card = AgentCard(
-    name="Echo Agent",
-    description="This agent echos the input given",
+    name="Echo and Time Agents",
+    description="This agent echos input OR can tell the current time.",
     url=f"http://{host}:{port}/",
     version="0.1.0",
     defaultInputModes=["text"],
     defaultOutputModes=["text"],
     capabilities=capabilities,
-    skills=[skill]
+    skills=[skill, time_skill],
   )
   logging.info(agent_card)
   task_manager = MyAgentTaskManager(
